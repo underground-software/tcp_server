@@ -8,16 +8,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static const char *get_handler(const char *handler_path)
+static int get_handler_fd(const char *handler_path)
 {
 	int handler = open(handler_path, O_PATH);
 	if(0 > handler)
 		err(1, "invalid handler program \"%s\"", handler_path);
-	static char proc_path[64];
-	int size = snprintf(proc_path, sizeof proc_path, "/proc/self/fd/%d", handler);
-	if(size < 0 || sizeof proc_path <= (size_t)size)
-		err(1, "handler proc_path too small (this is a bug)");
-	return proc_path;
+	return handler;
 }
 
 static int setup_socket(void)
@@ -68,7 +64,7 @@ static void setup_chroot(const char *chroot_path)
 		err(1, "unable to chroot into chroot directory \"%s\"", chroot_path);
 }
 
-static void accept_connection(int socket_fd, const char *handler)
+static void accept_connection(int socket_fd, int handler_fd)
 {
 	int client_socket_fd = accept4(socket_fd, NULL, NULL, SOCK_CLOEXEC);
 	if(0 > client_socket_fd)
@@ -84,7 +80,7 @@ static void accept_connection(int socket_fd, const char *handler)
 		close(socket_fd);
 		dup2(client_socket_fd, STDIN_FILENO);
 		dup2(client_socket_fd, STDOUT_FILENO);
-		execve(handler, (char*[]){NULL}, environ);
+		fexecve(handler_fd, (char *[]){NULL}, environ);
 		err(1, "failed to execute handler for request");
 	}
 }
@@ -93,7 +89,7 @@ int main(int argc, char **argv)
 {
 	if(argc < 2 || argc > 3)
 		errx(1, "Usage: %s connection_handler_program [chroot_dir]", argv[0]);
-	const char *handler = get_handler(argv[1]);
+	int handler_fd = get_handler_fd(argv[1]);
 
 	if(argc == 3)
 		setup_chroot(argv[2]);
@@ -103,5 +99,5 @@ int main(int argc, char **argv)
 	int socket_fd = setup_socket();
 
 	for(;;)
-		accept_connection(socket_fd, handler);
+		accept_connection(socket_fd, handler_fd);
 }
