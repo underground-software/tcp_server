@@ -8,17 +8,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static const struct sockaddr_in bind_addr =
-{
-	.sin_family = AF_INET,
-	.sin_port = 0x901F, //port 8080 in network byte order
-	.sin_addr = {.s_addr = 0,}, //listen on all interfaces
-};
-
-#ifdef DEBUG
-static const int one = 1;
-#endif
-
 static const char *get_handler(const char *handler_path)
 {
 	int handler = open(handler_path, O_PATH);
@@ -29,6 +18,29 @@ static const char *get_handler(const char *handler_path)
 	if(size < 0 || sizeof proc_path <= (size_t)size)
 		err(1, "handler proc_path too small (this is a bug)");
 	return proc_path;
+}
+
+static int setup_socket(void)
+{
+	struct sockaddr_in bind_addr =
+	{
+		.sin_family = AF_INET,
+		.sin_port = htons(8080),
+		.sin_addr = { .s_addr = htonl(INADDR_ANY), },
+	};
+	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if(0 > socket_fd)
+		err(1, "unable to open socket");
+#ifdef DEBUG
+	static const int one = 1;
+	if(0 > setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one))
+		err(1, "unable to set re-use flag on socket");
+#endif
+	if(0 > bind(socket_fd, (const struct sockaddr *)&bind_addr, sizeof bind_addr))
+		err(1, "unable to bind to address");
+	if(0 > listen(socket_fd, 32))
+		err(1, "unable to listen for connections");
+	return socket_fd;
 }
 
 static void setup_signal_handler(void)
@@ -82,21 +94,14 @@ int main(int argc, char **argv)
 	if(argc < 2 || argc > 3)
 		errx(1, "Usage: %s connection_handler_program [chroot_dir]", argv[0]);
 	const char *handler = get_handler(argv[1]);
+
 	if(argc == 3)
 		setup_chroot(argv[2]);
-	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if(0 > socket_fd)
-		err(1, "unable to open socket");
-#ifdef DEBUG
-	if(0 > setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one))
-		err(1, "unable to set re-use flag on socket");
-#endif
-	if(0 > bind(socket_fd, (const struct sockaddr *)&bind_addr, sizeof bind_addr))
-		err(1, "unable to bind to address");
-	if(0 > listen(socket_fd, 32))
-		err(1, "unable to listen for connections");
 
 	setup_signal_handler();
+
+	int socket_fd = setup_socket();
+
 	for(;;)
 		accept_connection(socket_fd, handler);
 }
