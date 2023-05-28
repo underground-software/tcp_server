@@ -56,6 +56,27 @@ static void setup_chroot(const char *chroot_path)
 		err(1, "unable to chroot into chroot directory \"%s\"", chroot_path);
 }
 
+static void accept_connection(int socket_fd, const char *handler)
+{
+	int client_socket_fd = accept4(socket_fd, NULL, NULL, SOCK_CLOEXEC);
+	if(0 > client_socket_fd)
+		err(1, "client accept failed");
+	switch(fork())
+	{
+	case -1:
+		err(1, "failed to create child for request");
+	default:
+		close(client_socket_fd);
+		return;
+	case 0:
+		close(socket_fd);
+		dup2(client_socket_fd, STDIN_FILENO);
+		dup2(client_socket_fd, STDOUT_FILENO);
+		execve(handler, (char*[]){NULL}, environ);
+		err(1, "failed to execute handler for request");
+	}
+}
+
 int main(int argc, char **argv)
 {
 	if(argc < 2 || argc > 3)
@@ -77,23 +98,5 @@ int main(int argc, char **argv)
 
 	setup_signal_handler();
 	for(;;)
-	{
-		int client_socket_fd = accept4(socket_fd, NULL, NULL, SOCK_CLOEXEC);
-		if(0 > socket_fd)
-			err(1, "client accept failed");
-		switch(fork())
-		{
-		case -1:
-			err(1, "failed to create child for request");
-		default:
-			close(client_socket_fd);
-			break;
-		case 0:
-			close(socket_fd);
-			dup2(client_socket_fd, STDIN_FILENO);
-			dup2(client_socket_fd, STDOUT_FILENO);
-			execve(handler, (char*[]){NULL}, environ);
-			err(1, "failed to execute handler for request");
-		}
-	}
+		accept_connection(socket_fd, handler);
 }
