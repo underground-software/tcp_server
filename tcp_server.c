@@ -31,6 +31,16 @@ static const char *get_handler(const char *handler_path)
 	return proc_path;
 }
 
+static void setup_signal_handler(void)
+{
+	struct sigaction child_act;
+	if(0 > sigaction(SIGCHLD, NULL, &child_act))
+		err(1, "failed to get default signal action for SIGCHLD (this is a bug)");
+	child_act.sa_flags |= SA_NOCLDWAIT; //avoid needing to reap children processes
+	if(0 > sigaction(SIGCHLD, &child_act, NULL))
+		err(1, "failed to set signal action for SIGCHLD (this is a bug)");
+}
+
 static void setup_chroot(const char *chroot_path)
 {
 	//avoid a race condition by opening path once
@@ -64,11 +74,10 @@ int main(int argc, char **argv)
 		err(1, "unable to bind to address");
 	if(0 > listen(socket_fd, 32))
 		err(1, "unable to listen for connections");
+
+	setup_signal_handler();
 	for(;;)
 	{
-		while(0 < waitpid(-1, NULL, WNOHANG)) //reap all pending children
-			;
-
 		int client_socket_fd = accept4(socket_fd, NULL, NULL, SOCK_CLOEXEC);
 		if(0 > socket_fd)
 			err(1, "client accept failed");
