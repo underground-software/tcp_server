@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <err.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -85,14 +86,77 @@ static void accept_connection(int socket_fd, int handler_fd)
 	}
 }
 
+[[gnu::format(printf, 2, 3)]] [[noreturn]]
+static void usage(const char *prog_name, const char *error_message, ...)
+{
+	fprintf(stderr,
+		"Usage: %s [flags or options ...] handler\n"
+		"Flags:\n"
+		"\t-h: display this message and exit\n"
+		"Options:\n"
+		"\t-c directory: chroot into directory `directory` after setting up handler but before accepting any connections\n"
+		"Arguments:\n"
+		"\thandler: this program will be executed for each incoming connection with its stdin and stdout attached to the socket\n",
+		prog_name);
+
+	if(!error_message)
+		exit(0);
+
+	fputs("Error: ", stderr);
+	va_list args;
+	va_start(args, error_message);
+	vfprintf(stderr, error_message, args);
+	va_end(args);
+	fputc('\n', stderr);
+	exit(1);
+}
+
+struct options
+{
+	char *chroot_dir;
+	char *handler_path;
+};
+
+static struct options parse_arguments(int argc, char **argv)
+{
+	char *chroot_dir = NULL;
+	for(;;)
+	{
+		switch(getopt(argc, argv, ":hc:"))
+		{
+		case 'h':
+			usage(argv[0], NULL);
+		case 'c':
+			if(chroot_dir)
+				usage(argv[0], "the -c option can only be specified once");
+			chroot_dir = optarg;
+			continue;
+		case ':':
+			usage(argv[0], "the -%c option requires an argument", optopt);
+		case '?':
+			usage(argv[0], "the option -%c is not recognized", optopt);
+		case -1:
+			break;
+		}
+		break;
+	}
+	if(NULL == argv[optind])
+		usage(argv[0], "no handler program was specified");
+	return (struct options)
+	{
+		.chroot_dir = chroot_dir,
+		.handler_path = argv[optind],
+	};
+}
+
 int main(int argc, char **argv)
 {
-	if(argc < 2 || argc > 3)
-		errx(1, "Usage: %s connection_handler_program [chroot_dir]", argv[0]);
-	int handler_fd = get_handler_fd(argv[1]);
+	struct options options = parse_arguments(argc, argv);
 
-	if(argc == 3)
-		setup_chroot(argv[2]);
+	int handler_fd = get_handler_fd(options.handler_path);
+
+	if(NULL != options.chroot_dir)
+		setup_chroot(options.chroot_dir);
 
 	setup_signal_handler();
 
