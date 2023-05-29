@@ -21,7 +21,7 @@ static int get_handler_fd(const char *handler_path, bool interpreted)
 	return handler;
 }
 
-static int setup_socket(bool loopback, const char *port_str)
+static int setup_socket(bool loopback, const char *port_str, const char *bind_addr_str)
 {
 	struct sockaddr_in bind_addr =
 	{
@@ -45,6 +45,11 @@ static int setup_socket(bool loopback, const char *port_str)
 			err(1, "invalid port \"%s\"", port_str);
 		}
 		bind_addr.sin_port = htons(port);
+	}
+	if(NULL != bind_addr_str)
+	{
+		if(!inet_aton(bind_addr_str, &bind_addr.sin_addr))
+			errx(1, "invalid bind address \"%s\"", bind_addr_str);
 	}
 	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if(0 > socket_fd)
@@ -114,11 +119,12 @@ static void usage(const char *prog_name, const char *error_message, ...)
 		"Usage: %s [flags or options ...] handler [args ...]\n"
 		"Flags:\n"
 		"\t-h: display this message and exit\n"
-		"\t-l: select loopback interface (127.0.0.1) as bind address\n"
+		"\t-l: select loopback interface (127.0.0.1) as bind address (incompatible with -b)\n"
 		"\t-i: specify that handler is an interpreted script that needs to have access to itself to run\n"
 		"Options:\n"
 		"\t-c directory: chroot into directory `directory` after setting up handler but before accepting any connections\n"
 		"\t-p port: listen on port `port` instead of default 1337\n"
+		"\t-b address: bind to address `address` instead of default 0.0.0.0 (incompatible with -l)\n"
 		"Arguments:\n"
 		"\thandler: this program will be executed for each incoming connection with its stdin and stdout attached to the socket\n"
 		"\targs: any subsequent arguments will be provided as argv for handler when it is invoked\n"
@@ -140,7 +146,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 struct options
 {
 	bool interpreted, loopback;
-	char *chroot_dir, *port;
+	char *chroot_dir, *port, *bind_addr;
 	char *handler_path, **handler_argv;
 };
 
@@ -150,12 +156,13 @@ static struct options parse_arguments(int argc, char **argv)
 	bool loopback = false;
 	char *chroot_dir = NULL;
 	char *port = NULL;
+	char *bind_addr = NULL;
 	for(;;)
 	{
 		//the `+` character at the beginning means that processing stops at the first non-option
 		//element (i.e. one that does not start with a dash) which should be the handler program
 		//this ensures that the order of further options are passed on unmodified to the handler
-		switch(getopt(argc, argv, "+:hilc:p:"))
+		switch(getopt(argc, argv, "+:hilc:p:b:"))
 		{
 		case 'h':
 			usage(argv[0], NULL);
@@ -165,6 +172,8 @@ static struct options parse_arguments(int argc, char **argv)
 			interpreted = true;
 			continue;
 		case 'l':
+			if(bind_addr)
+				usage(argv[0], "the -l option is incompatible with -b");
 			if(loopback)
 				usage(argv[0], "the -l option can only be specified once");
 			loopback = true;
@@ -178,6 +187,13 @@ static struct options parse_arguments(int argc, char **argv)
 			if(port)
 				usage(argv[0], "the -p option can only be specified once");
 			port = optarg;
+			continue;
+		case 'b':
+			if(loopback)
+				usage(argv[0], "the -b option is incompatible with -l");
+			if(bind_addr)
+				usage(argv[0], "the -b option can only be specified once");
+			bind_addr = optarg;
 			continue;
 		case ':':
 			usage(argv[0], "the -%c option requires an argument", optopt);
@@ -196,6 +212,7 @@ static struct options parse_arguments(int argc, char **argv)
 		.loopback = loopback,
 		.chroot_dir = chroot_dir,
 		.port = port,
+		.bind_addr = bind_addr,
 		.handler_path = argv[optind],
 		.handler_argv = &argv[optind + 1],
 	};
@@ -212,7 +229,7 @@ int main(int argc, char **argv)
 
 	setup_signal_handler();
 
-	int socket_fd = setup_socket(options.loopback, options.port);
+	int socket_fd = setup_socket(options.loopback, options.port, options.bind_addr);
 
 	for(;;)
 		accept_connection(socket_fd, handler_fd, options.handler_argv);
