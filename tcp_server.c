@@ -20,13 +20,13 @@ static int get_handler_fd(const char *handler_path, bool interpreted)
 	return handler;
 }
 
-static int setup_socket(void)
+static int setup_socket(bool loopback)
 {
 	struct sockaddr_in bind_addr =
 	{
 		.sin_family = AF_INET,
 		.sin_port = htons(8080),
-		.sin_addr = { .s_addr = htonl(INADDR_ANY), },
+		.sin_addr = { .s_addr = htonl(loopback ? INADDR_LOOPBACK : INADDR_ANY), },
 	};
 	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if(0 > socket_fd)
@@ -96,6 +96,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 		"Usage: %s [flags or options ...] handler [args ...]\n"
 		"Flags:\n"
 		"\t-h: display this message and exit\n"
+		"\t-l: select loopback interface (127.0.0.1) as bind address\n"
 		"\t-i: specify that handler is an interpreted script that needs to have access to itself to run\n"
 		"Options:\n"
 		"\t-c directory: chroot into directory `directory` after setting up handler but before accepting any connections\n"
@@ -119,7 +120,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 
 struct options
 {
-	bool interpreted;
+	bool interpreted, loopback;
 	char *chroot_dir;
 	char *handler_path, **handler_argv;
 };
@@ -127,13 +128,14 @@ struct options
 static struct options parse_arguments(int argc, char **argv)
 {
 	bool interpreted = false;
+	bool loopback = false;
 	char *chroot_dir = NULL;
 	for(;;)
 	{
 		//the `+` character at the beginning means that processing stops at the first non-option
 		//element (i.e. one that does not start with a dash) which should be the handler program
 		//this ensures that the order of further options are passed on unmodified to the handler
-		switch(getopt(argc, argv, "+:hic:"))
+		switch(getopt(argc, argv, "+:hilc:"))
 		{
 		case 'h':
 			usage(argv[0], NULL);
@@ -141,6 +143,11 @@ static struct options parse_arguments(int argc, char **argv)
 			if(interpreted)
 				usage(argv[0], "the -i option can only be specified once");
 			interpreted = true;
+			continue;
+		case 'l':
+			if(loopback)
+				usage(argv[0], "the -l option can only be specified once");
+			loopback = true;
 			continue;
 		case 'c':
 			if(chroot_dir)
@@ -161,6 +168,7 @@ static struct options parse_arguments(int argc, char **argv)
 	return (struct options)
 	{
 		.interpreted = interpreted,
+		.loopback = loopback,
 		.chroot_dir = chroot_dir,
 		.handler_path = argv[optind],
 		.handler_argv = &argv[optind + 1],
@@ -178,7 +186,7 @@ int main(int argc, char **argv)
 
 	setup_signal_handler();
 
-	int socket_fd = setup_socket();
+	int socket_fd = setup_socket(options.loopback);
 
 	for(;;)
 		accept_connection(socket_fd, handler_fd, options.handler_argv);
