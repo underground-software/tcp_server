@@ -9,9 +9,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static int get_handler_fd(const char *handler_path)
+static int get_handler_fd(const char *handler_path, bool interpreted)
 {
-	int handler = open(handler_path, O_PATH);
+	int flags = O_PATH;
+	if(!interpreted)
+		flags |= O_CLOEXEC;
+	int handler = open(handler_path, flags);
 	if(0 > handler)
 		err(1, "invalid handler program \"%s\"", handler_path);
 	return handler;
@@ -93,6 +96,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 		"Usage: %s [flags or options ...] handler [args ...]\n"
 		"Flags:\n"
 		"\t-h: display this message and exit\n"
+		"\t-i: specify that handler is an interpreted script that needs to have access to itself to run\n"
 		"Options:\n"
 		"\t-c directory: chroot into directory `directory` after setting up handler but before accepting any connections\n"
 		"Arguments:\n"
@@ -115,22 +119,29 @@ static void usage(const char *prog_name, const char *error_message, ...)
 
 struct options
 {
+	bool interpreted;
 	char *chroot_dir;
 	char *handler_path, **handler_argv;
 };
 
 static struct options parse_arguments(int argc, char **argv)
 {
+	bool interpreted = false;
 	char *chroot_dir = NULL;
 	for(;;)
 	{
 		//the `+` character at the beginning means that processing stops at the first non-option
 		//element (i.e. one that does not start with a dash) which should be the handler program
 		//this ensures that the order of further options are passed on unmodified to the handler
-		switch(getopt(argc, argv, "+:hc:"))
+		switch(getopt(argc, argv, "+:hic:"))
 		{
 		case 'h':
 			usage(argv[0], NULL);
+		case 'i':
+			if(interpreted)
+				usage(argv[0], "the -i option can only be specified once");
+			interpreted = true;
+			continue;
 		case 'c':
 			if(chroot_dir)
 				usage(argv[0], "the -c option can only be specified once");
@@ -149,6 +160,7 @@ static struct options parse_arguments(int argc, char **argv)
 		usage(argv[0], "no handler program was specified");
 	return (struct options)
 	{
+		.interpreted = interpreted,
 		.chroot_dir = chroot_dir,
 		.handler_path = argv[optind],
 		.handler_argv = &argv[optind + 1],
@@ -159,7 +171,7 @@ int main(int argc, char **argv)
 {
 	struct options options = parse_arguments(argc, argv);
 
-	int handler_fd = get_handler_fd(options.handler_path);
+	int handler_fd = get_handler_fd(options.handler_path, options.interpreted);
 
 	if(NULL != options.chroot_dir)
 		setup_chroot(options.chroot_dir);
