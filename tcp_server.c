@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -20,7 +21,7 @@ static int get_handler_fd(const char *handler_path, bool interpreted)
 	return handler;
 }
 
-static int setup_socket(bool loopback)
+static int setup_socket(bool loopback, const char *port_str)
 {
 	struct sockaddr_in bind_addr =
 	{
@@ -28,6 +29,23 @@ static int setup_socket(bool loopback)
 		.sin_port = htons(8080),
 		.sin_addr = { .s_addr = htonl(loopback ? INADDR_LOOPBACK : INADDR_ANY), },
 	};
+	if(NULL != port_str)
+	{
+		char *endptr;
+		errno = 0;
+		long port = strtol(port_str, &endptr, 0);
+		if(endptr == port_str || *endptr != '\0')
+		{
+			errno = EINVAL;
+			err(1, "invalid port \"%s\"", port_str);
+		}
+		if(port < 0 || port > 0xffff)
+		{
+			errno = ERANGE;
+			err(1, "invalid port \"%s\"", port_str);
+		}
+		bind_addr.sin_port = htons(port);
+	}
 	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if(0 > socket_fd)
 		err(1, "unable to open socket");
@@ -100,6 +118,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 		"\t-i: specify that handler is an interpreted script that needs to have access to itself to run\n"
 		"Options:\n"
 		"\t-c directory: chroot into directory `directory` after setting up handler but before accepting any connections\n"
+		"\t-p port: listen on port `port` instead of default 1337\n"
 		"Arguments:\n"
 		"\thandler: this program will be executed for each incoming connection with its stdin and stdout attached to the socket\n"
 		"\targs: any subsequent arguments will be provided as argv for handler when it is invoked\n"
@@ -121,7 +140,7 @@ static void usage(const char *prog_name, const char *error_message, ...)
 struct options
 {
 	bool interpreted, loopback;
-	char *chroot_dir;
+	char *chroot_dir, *port;
 	char *handler_path, **handler_argv;
 };
 
@@ -130,12 +149,13 @@ static struct options parse_arguments(int argc, char **argv)
 	bool interpreted = false;
 	bool loopback = false;
 	char *chroot_dir = NULL;
+	char *port = NULL;
 	for(;;)
 	{
 		//the `+` character at the beginning means that processing stops at the first non-option
 		//element (i.e. one that does not start with a dash) which should be the handler program
 		//this ensures that the order of further options are passed on unmodified to the handler
-		switch(getopt(argc, argv, "+:hilc:"))
+		switch(getopt(argc, argv, "+:hilc:p:"))
 		{
 		case 'h':
 			usage(argv[0], NULL);
@@ -154,6 +174,11 @@ static struct options parse_arguments(int argc, char **argv)
 				usage(argv[0], "the -c option can only be specified once");
 			chroot_dir = optarg;
 			continue;
+		case 'p':
+			if(port)
+				usage(argv[0], "the -p option can only be specified once");
+			port = optarg;
+			continue;
 		case ':':
 			usage(argv[0], "the -%c option requires an argument", optopt);
 		case '?':
@@ -170,6 +195,7 @@ static struct options parse_arguments(int argc, char **argv)
 		.interpreted = interpreted,
 		.loopback = loopback,
 		.chroot_dir = chroot_dir,
+		.port = port,
 		.handler_path = argv[optind],
 		.handler_argv = &argv[optind + 1],
 	};
@@ -186,7 +212,7 @@ int main(int argc, char **argv)
 
 	setup_signal_handler();
 
-	int socket_fd = setup_socket(options.loopback);
+	int socket_fd = setup_socket(options.loopback, options.port);
 
 	for(;;)
 		accept_connection(socket_fd, handler_fd, options.handler_argv);
