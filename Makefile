@@ -1,6 +1,6 @@
 CC = clang
-CFLAGS = -std=c2x -Weverything -Wno-declaration-after-statement -Wno-c++98-compat -Wno-padded -D_GNU_SOURCE
-CFLAGS += -DDEBUG -Og -g
+CFLAGS = -std=c2x -Weverything -Wno-declaration-after-statement -Wno-c++98-compat -Wno-padded -Wno-unsafe-buffer-usage -D_GNU_SOURCE
+#CFLAGS += -DDEBUG -Og -g
 
 .PHONY: all clean
 

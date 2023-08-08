@@ -3,6 +3,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <inttypes.h>
+#include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -39,12 +42,12 @@ static int setup_socket(bool loopback, const char *port_str, const char *bind_ad
 			errno = EINVAL;
 			err(1, "invalid port \"%s\"", port_str);
 		}
-		if(port < 0 || port > 0xffff)
+		if(port < 0 || port > UINT16_MAX)
 		{
 			errno = ERANGE;
 			err(1, "invalid port \"%s\"", port_str);
 		}
-		bind_addr.sin_port = htons(port);
+		bind_addr.sin_port = htons((uint16_t)port);
 	}
 	if(NULL != bind_addr_str)
 	{
