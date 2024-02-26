@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -23,6 +24,15 @@ static int get_handler_fd(const char *handler_path, bool interpreted)
 	if(0 > handler)
 		err(1, "invalid handler program \"%s\"", handler_path);
 	return handler;
+}
+
+static void verify_non_setuid(int handler_fd)
+{
+	struct stat stat;
+	if(0 > fstat(handler_fd, &stat))
+		err(1, "unable to stat handler program");
+	if(stat.st_mode & (S_ISUID | S_ISGID))
+		errx(1, "it is forbidden to combine chroot with a setuid/setgid handler program");
 }
 
 static int setup_socket(bool loopback, const char *port_str, const char *bind_addr_str)
@@ -227,7 +237,10 @@ int main(int argc, char **argv)
 	int handler_fd = get_handler_fd(options.handler_path, options.interpreted);
 
 	if(NULL != options.chroot_dir)
+	{
+		verify_non_setuid(handler_fd);
 		setup_chroot(options.chroot_dir);
+	}
 
 	setup_signal_handler();
 
