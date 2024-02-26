@@ -104,15 +104,14 @@ static void accept_connection(int socket_fd, int handler_fd, char **handler_argv
 	{
 	case -1:
 		err(1, "failed to create child for request");
-	default:
-		close(client_socket_fd);
-		return;
 	case 0:
 		close(socket_fd);
 		dup2(client_socket_fd, STDIN_FILENO);
 		dup2(client_socket_fd, STDOUT_FILENO);
 		fexecve(handler_fd, handler_argv, environ);
 		err(1, "failed to execute handler for request");
+	default:
+		close(client_socket_fd);
 	}
 }
 
