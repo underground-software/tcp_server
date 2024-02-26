@@ -92,17 +92,10 @@ static void setup_signal_handler(void)
 
 static void setup_chroot(const char *chroot_path)
 {
-	//avoid a race condition by opening path once
-	//then using resulting fd for all subsequent actions
-	int chroot_dir = open(chroot_path, O_PATH);
-	if(0 > chroot_dir)
-		err(1, "invalid chroot directory \"%s\"", chroot_path);
-	if(0 > fchdir(chroot_dir))
-		err(1, "unable to chdir into chroot directory \"%s\"", chroot_path);
-	char proc_path[64];
-	int size = snprintf(proc_path, sizeof proc_path, "/proc/self/fd/%d", chroot_dir);
-	if(size < 0 || sizeof proc_path <= (size_t)size || 0 > chroot(proc_path))
+	if(0 > chroot(chroot_path))
 		err(1, "unable to chroot into chroot directory \"%s\"", chroot_path);
+	if(0 > chdir("/"))
+		err(1, "unable to chdir into new root \"%s\" after chroot", chroot_path);
 }
 
 static void accept_connection(int socket_fd, int handler_fd, char **handler_argv)
