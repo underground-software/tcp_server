@@ -55,7 +55,7 @@ static int setup_socket(bool loopback, const char *port_str, const char *bind_ad
 		if(!inet_aton(bind_addr_str, &bind_addr.sin_addr))
 			errx(1, "invalid bind address \"%s\"", bind_addr_str);
 	}
-	int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	int socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
 	if(0 > socket_fd)
 		err(1, "unable to open socket");
 #ifdef DEBUG
@@ -105,7 +105,6 @@ static void accept_connection(int socket_fd, int handler_fd, char **handler_argv
 	case -1:
 		err(1, "failed to create child for request");
 	case 0:
-		close(socket_fd);
 		dup2(client_socket_fd, STDIN_FILENO);
 		dup2(client_socket_fd, STDOUT_FILENO);
 		fexecve(handler_fd, handler_argv, environ);
