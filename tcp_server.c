@@ -72,12 +72,16 @@ static int setup_socket(bool loopback, const char *port_str, const char *bind_ad
 
 static void setup_signal_handler(void)
 {
-	struct sigaction child_act;
-	if(0 > sigaction(SIGCHLD, NULL, &child_act))
+	struct sigaction act;
+	if(0 > sigaction(SIGCHLD, NULL, &act))
 		err(1, "failed to get default signal action for SIGCHLD (this is a bug)");
-	child_act.sa_flags |= SA_NOCLDWAIT; //avoid needing to reap children processes
-	if(0 > sigaction(SIGCHLD, &child_act, NULL))
+	act.sa_flags |= SA_NOCLDWAIT; //avoid needing to reap children processes
+	if(0 > sigaction(SIGCHLD, &act, NULL))
 		err(1, "failed to set signal action for SIGCHLD (this is a bug)");
+
+	sigaction(SIGTERM, NULL, &act);
+	act.sa_handler = exit;
+	sigaction(SIGTERM, &act, NULL);
 }
 
 static void setup_chroot(const char *chroot_path)
